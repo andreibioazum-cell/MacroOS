@@ -1,0 +1,7 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.aetheria.loader'
+    compileSdk 34
+    defaultConfig { applicationId 'com.aetheria.loader'; minSdk 24; targetSdk 34 }
+    externalNativeBuild { cmake { path "src/main/cpp/CMakeLists.txt" } }
+}
