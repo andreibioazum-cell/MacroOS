@@ -8,56 +8,38 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'ndk;25.2.9519653'
+      - name: Setup Android SDK & Install LLD
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lld clang
+          # Устанавливаем NDK только для JNI части приложения
+          echo "y" | $ANDROID_HOME/tools/bin/sdkmanager --install "ndk;25.2.9519653"
 
       - name: Build Tiny C Kernel
         run: |
           mkdir -p kernel
           cat > kernel/kernel.c << 'EOF'
           typedef unsigned int u32;
-          typedef unsigned char u8;
-
-          // Рисуем квадрат
-          void draw_rect(u32* fb, int w, int x, int y, int rw, int rh, u32 color) {
+          void draw_rect(u32* fb, int w, int x, int y, int rw, int rh, u32 col) {
               for (int i = 0; i < rh; i++)
                   for (int j = 0; j < rw; j++)
-                      if ((x+j) < w) fb[(y+i)*w + (x+j)] = color;
+                      fb[(y+i)*w + (x+j)] = col;
           }
-
-          // Ультра-примитивный интерпретатор (код, fb, клавиша, ширина, высота)
-          void run_vm(const char* code, u32* fb, u8* kb, int w, int h) {
-              int regs[8] = {0}; // x, y, color, etc.
-              const char* p = code;
-              while (*p) {
-                  char cmd = *p++;
-                  if (cmd == 'S') regs[0] = *p++, regs[1] = *p++; // Set X, Y
-                  if (cmd == 'C') regs[2] = (*p++ == 'R' ? 0xFFFF0000 : 0xFF00FF00); // Color
-                  if (cmd == 'D') draw_rect(fb, w, regs[0]*10, regs[1]*10, 10, 10, regs[2]); // Draw
-                  if (cmd == 'M') { // Move based on Key
-                      u8 key = *kb;
-                      if (key == 'w') regs[1]--; if (key == 's') regs[1]++;
-                      if (key == 'a') regs[0]--; if (key == 'd') regs[0]++;
-                      *kb = 0; // Сброс клавиши
-                  }
-                  if (cmd == 'J') p = code; // Jump to start (loop)
+          void kmain(u32* fb, unsigned char* kb, u32 w, u32 h) {
+              u32 x=10, y=10, colors[]={0xFFFF0000, 0xFF00FF00, 0xFF0000FF, 0xFFFFFFFF};
+              for(int i=0; i<w*h; i++) fb[i] = 0xFF000000; // Clear
+              while(1) {
+                  draw_rect(fb, w, x*10, y*10, 20, 20, colors[x%4]);
+                  if(*kb == 'w') y--; if(*kb == 's') y++;
+                  if(*kb == 'a') x--; if(*kb == 'd') x++;
+                  if(*kb != 0) { *kb = 0; draw_rect(fb, w, 0, 0, w, h, 0xFF000000); }
+                  for(int i=0; i<500000; i++) __asm__("nop"); // Delay
               }
           }
-
-          void kmain(u32* fb, u8* kb, u32 w, u32 h) {
-              // Простой скрипт: Очистка экрана (черный) и цикл управления квадратом
-              for(int i=0; i<w*h; i++) fb[i] = 0xFF000000;
-              const char* script = "CR S\n\x05 S\x05 D M J"; 
-              run_vm(script, fb, kb, (int)w, (int)h);
-          }
           EOF
-          # Компилируем под AArch64 (Android Bare Metal style)
-          CLANG=$(find $ANDROID_HOME/ndk -name "aarch64-linux-android34-clang" | head -n 1)
-          [ -z "$CLANG" ] && CLANG="clang --target=aarch64-linux-gnu"
-          $CLANG -c kernel/kernel.c -o kernel.o -O3 -ffreestanding -nostdlib
-          ld.lld -shared kernel.o -o kernel.bin --entry=kmain
+          # Компилируем ядро одной командой
+          clang --target=aarch64-linux-gnu -O3 -shared -nostdlib \
+                -fuse-ld=lld kernel/kernel.c -o kernel.bin -Wl,--entry=kmain
 
       - name: Create Android Wrapper
         run: |
@@ -67,11 +49,11 @@ jobs:
           cat > app/src/main/res/layout/activity_main.xml << 'EOF'
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#000">
               <SurfaceView android:id="@+id/s" android:layout_width="match_parent" android:layout_height="match_parent" />
-              <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_alignParentBottom="true" android:orientation="horizontal">
-                  <Button android:id="@+id/btnA" android:layout_width="60dp" android:layout_height="60dp" android:text="A" />
-                  <Button android:id="@+id/btnW" android:layout_width="60dp" android:layout_height="60dp" android:text="W" />
-                  <Button android:id="@+id/btnS" android:layout_width="60dp" android:layout_height="60dp" android:text="S" />
-                  <Button android:id="@+id/btnD" android:layout_width="60dp" android:layout_height="60dp" android:text="D" />
+              <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_alignParentBottom="true">
+                  <Button android:id="@+id/btnW" android:layout_width="80dp" android:layout_height="80dp" android:text="W" />
+                  <Button android:id="@+id/btnS" android:layout_width="80dp" android:layout_height="80dp" android:text="S" />
+                  <Button android:id="@+id/btnA" android:layout_width="80dp" android:layout_height="80dp" android:text="A" />
+                  <Button android:id="@+id/btnD" android:layout_width="80dp" android:layout_height="80dp" android:text="D" />
               </LinearLayout>
           </RelativeLayout>
           EOF
@@ -82,6 +64,7 @@ jobs:
           import android.graphics.*;
           import android.os.Bundle;
           import android.view.*;
+          import android.widget.Button;
           import java.nio.ByteBuffer;
 
           public class MainActivity extends Activity {
@@ -101,16 +84,16 @@ jobs:
 
                   s.getHolder().addCallback(new SurfaceHolder.Callback() {
                       public void surfaceCreated(SurfaceHolder h) {
-                          new Thread(() -> {
-                              try { start(getResources().openRawResource(R.raw.kernel_bin).readAllBytes(), fb, kb, 1280, 720); } catch(Exception e){}
-                          }).start();
-                          new Thread(() -> {
-                              while(true) {
-                                  Canvas c = h.lockCanvas();
-                                  if(c != null) { fb.position(0); bm.copyPixelsFromBuffer(fb); c.drawBitmap(bm, null, new Rect(0,0,s.getWidth(),s.getHeight()), null); h.unlockCanvasAndPost(c); }
-                                  try { Thread.sleep(16); } catch(Exception e){}
-                              }
-                          }).start();
+                          new Thread(() -> { try { 
+                              byte[] k = new byte[getResources().openRawResource(R.raw.kernel_bin).available()];
+                              getResources().openRawResource(R.raw.kernel_bin).read(k);
+                              start(k, fb, kb, 1280, 720); 
+                          } catch(Exception e){} }).start();
+                          new Thread(() -> { while(true) {
+                              Canvas c = h.lockCanvas();
+                              if(c != null) { fb.position(0); bm.copyPixelsFromBuffer(fb); c.drawBitmap(bm, null, new Rect(0,0,s.getWidth(),s.getHeight()), null); h.unlockCanvasAndPost(c); }
+                              try { Thread.sleep(16); } catch(Exception e){}
+                          } }).start();
                       }
                       public void surfaceChanged(SurfaceHolder h, int f, int w, int h2) {}
                       public void surfaceDestroyed(SurfaceHolder h) {}
@@ -128,18 +111,16 @@ jobs:
               void* mem = mmap(0, len, 7, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
               jbyte* b = env->GetByteArrayElements(k, 0);
               memcpy(mem, b, len);
-              ((void(*)(void*, void*, int, int))mem)(env->GetDirectBufferAddress(fb), env->GetDirectBufferAddress(kb), w, h);
+              ((void(*)(void*, void*, int, int))mem)(env->GetDirectBufferAddress(fb), env->GetDirectBufferAddress(kb), (int)w, (int)h);
           }
           EOF
 
-          cat > app/src/main/cpp/CMakeLists.txt << 'EOF'
-          project(loader)
-          add_library(loader SHARED loader.cpp)
-          EOF
+          echo "project(loader)" > app/src/main/cpp/CMakeLists.txt
+          echo "add_library(loader SHARED loader.cpp)" >> app/src/main/cpp/CMakeLists.txt
 
           cat > app/src/main/AndroidManifest.xml << 'EOF'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.aether.os">
-              <application android:label="AetheriaTiny">
+              <application android:label="AetheriaOS" android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
                   <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="landscape">
                       <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
                   </activity>
@@ -148,14 +129,7 @@ jobs:
           EOF
 
           echo "plugins { id 'com.android.application' }" > app/build.gradle
-          cat >> app/build.gradle << 'EOF'
-          android {
-              namespace 'com.aether.os'
-              compileSdk 34
-              defaultConfig { minSdk 24 }
-              externalNativeBuild { cmake { path "src/main/cpp/CMakeLists.txt" } }
-          }
-          EOF
+          echo "android { namespace 'com.aether.os'; compileSdk 34; defaultConfig { minSdk 24 }; externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt' } } }" >> app/build.gradle
           echo "buildscript { repositories { google(); mavenCentral() }; dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } }" > build.gradle
           echo "include ':app'" > settings.gradle
 
@@ -165,8 +139,8 @@ jobs:
           unzip -q gradle-8.5-bin.zip
           ./gradle-8.5/bin/gradle assembleDebug
 
-      - name: Upload
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Aetheria-Tiny-OS
+          name: AetheriaOS-Tiny
           path: app/build/outputs/apk/debug/app-debug.apk
