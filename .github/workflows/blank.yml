@@ -13,51 +13,61 @@ jobs:
         with:
           packages: 'ndk;25.2.9519653'
 
-      - name: Build Bare-Metal C Kernel
+      - name: Build Bare-Metal Kernel
         run: |
           mkdir -p kernel
           cat > kernel/kernel.c << 'EOF'
           typedef unsigned int u32;
-          // Рисуем пиксель
-          void draw(u32* fb, int w, int x, int y, u32 col) {
-              if(x >= 0 && x < 1280 && y >= 0 && y < 720) fb[y * w + x] = col;
-          }
-          // Точка входа
           void kmain(u32* fb, unsigned char* kb, int w, int h) {
-              u32 x=100, y=100, c=0xFF00FF00;
-              for(int i=0; i<w*h; i++) fb[i] = 0xFF111111; // Очистка
+              u32 x=500, y=300, color=0xFF4AF626; 
+              for(int i=0; i<w*h; i++) fb[i] = 0xFF0D0D14; // Очистка фона
               while(1) {
-                  for(int i=0; i<20; i++) for(int j=0; j<20; j++) draw(fb, w, x+i, y+j, c);
-                  if(*kb == 'w') y-=5; if(*kb == 's') y+=5;
-                  if(*kb == 'a') x-=5; if(*kb == 'd') x+=5;
-                  if(*kb != 0) { *kb = 0; for(int i=0; i<w*h; i++) fb[i] = 0xFF111111; }
-                  for(volatile int i=0; i<200000; i++); // Задержка
+                  // Рисуем квадрат 40x40
+                  for(int i=0; i<40; i++) 
+                      for(int j=0; j<40; j++) 
+                          if((y+i)<h && (x+j)<w) fb[(y+i)*w + (x+j)] = color;
+                  
+                  unsigned char key = *kb;
+                  if(key != 0) {
+                      // Стираем старый квадрат перед движением
+                      for(int i=0; i<40; i++) for(int j=0; j<40; j++) fb[(y+i)*w + (x+j)] = 0xFF0D0D14;
+                      if(key == 'w') y -= 10; if(key == 's') y += 10;
+                      if(key == 'a') x -= 10; if(key == 'd') x += 10;
+                      *kb = 0; // Сброс клавиши
+                  }
+                  for(volatile int i=0; i<100000; i++); // Задержка
               }
           }
           EOF
-          # Компилируем в чистый бинарник (без заголовков ELF)
-          clang --target=aarch64-linux-gnu -O3 -ffreestanding -nostdlib -c kernel/kernel.c -o kernel.o
-          ld.lld kernel.o -o kernel.bin --section-start .text=0x0 --oformat binary
+          
+          # Находим пути к инструментам NDK
+          NDK_TOOLCHAIN=$(find $ANDROID_HOME/ndk -name "bin" -type d | grep "llvm" | head -n 1)
+          CLANG=$NDK_TOOLCHAIN/aarch64-linux-android33-clang
+          LLD=$NDK_TOOLCHAIN/ld.lld
+          OBJCOPY=$NDK_TOOLCHAIN/llvm-objcopy
+          
+          # Компиляция в чистый бинарник
+          $CLANG -target aarch64-none-elf -O3 -ffreestanding -nostdlib -c kernel/kernel.c -o kernel.o
+          $LLD kernel.o -o kernel.elf --section-start .text=0x0 --entry=kmain
+          $OBJCOPY -O binary kernel.elf kernel.bin
 
       - name: Create Android Wrapper
         run: |
-          mkdir -p app/src/main/{java/com/aether/os,cpp,res/layout,res/raw}
+          mkdir -p app/src/main/{java/com/aetheria/os,cpp,res/layout,res/raw}
           cp kernel.bin app/src/main/res/raw/kernel_bin
-
+          
           cat > app/src/main/res/layout/activity_main.xml << 'EOF'
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#000">
               <SurfaceView android:id="@+id/s" android:layout_width="match_parent" android:layout_height="match_parent" />
-              <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_alignParentBottom="true">
-                  <Button android:id="@+id/btnW" android:layout_width="70dp" android:layout_height="70dp" android:text="W" />
-                  <Button android:id="@+id/btnS" android:layout_width="70dp" android:layout_height="70dp" android:text="S" />
-                  <Button android:id="@+id/btnA" android:layout_width="70dp" android:layout_height="70dp" android:text="A" />
-                  <Button android:id="@+id/btnD" android:layout_width="70dp" android:layout_height="70dp" android:text="D" />
-              </LinearLayout>
+              <GridLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_alignParentBottom="true" android:columnCount="3">
+                  <View android:layout_width="60dp"/><Button android:id="@+id/w" android:text="W" android:layout_width="60dp"/><View />
+                  <Button android:id="@+id/a" android:text="A" android:layout_width="60dp"/><Button android:id="@+id/s_btn" android:text="S" android:layout_width="60dp"/><Button android:id="@+id/d" android:text="D" android:layout_width="60dp"/>
+              </GridLayout>
           </RelativeLayout>
           EOF
 
-          cat > app/src/main/java/com/aether/os/MainActivity.java << 'EOF'
-          package com.aether.os;
+          cat > app/src/main/java/com/aetheria/os/MainActivity.java << 'EOF'
+          package com.aetheria.os;
           import android.app.Activity;
           import android.graphics.*;
           import android.os.Bundle;
@@ -74,12 +84,14 @@ jobs:
               @Override protected void onCreate(Bundle b) {
                   super.onCreate(b);
                   setContentView(R.layout.activity_main);
-                  SurfaceView s = findViewById(R.id.s);
-                  View.OnTouchListener l = (v, e) -> { if(e.getAction()==0) kb.put(0, (byte)((Button)v).getText().toLowerCase().charAt(0)); return false; };
-                  findViewById(R.id.btnA).setOnTouchListener(l); findViewById(R.id.btnW).setOnTouchListener(l);
-                  findViewById(R.id.btnS).setOnTouchListener(l); findViewById(R.id.btnD).setOnTouchListener(l);
-
-                  s.getHolder().addCallback(new SurfaceHolder.Callback() {
+                  SurfaceView sv = findViewById(R.id.s);
+                  int[] ids = {R.id.w, R.id.a, R.id.s_btn, R.id.d};
+                  char[] keys = {'w', 'a', 's', 'd'};
+                  for(int i=0; i<4; i++) {
+                      final char k = keys[i];
+                      findViewById(ids[i]).setOnClickListener(v -> kb.put(0, (byte)k));
+                  }
+                  sv.getHolder().addCallback(new SurfaceHolder.Callback() {
                       public void surfaceCreated(SurfaceHolder h) {
                           new Thread(() -> { try {
                               java.io.InputStream is = getResources().openRawResource(R.raw.kernel_bin);
@@ -88,7 +100,8 @@ jobs:
                           } catch(Exception e){} }).start();
                           new Thread(() -> { while(true) {
                               Canvas c = h.lockCanvas();
-                              if(c != null) { fb.position(0); bm.copyPixelsFromBuffer(fb); c.drawBitmap(bm, null, new Rect(0,0,s.getWidth(),s.getHeight()), null); h.unlockCanvasAndPost(c); }
+                              if(c != null) { fb.position(0); bm.copyPixelsFromBuffer(fb); 
+                              c.drawBitmap(bm, null, new Rect(0,0,sv.getWidth(),sv.getHeight()), null); h.unlockCanvasAndPost(c); }
                               try { Thread.sleep(16); } catch(Exception e){}
                           } }).start();
                       }
@@ -103,11 +116,10 @@ jobs:
           #include <jni.h>
           #include <string.h>
           #include <sys/mman.h>
-          extern "C" JNIEXPORT void JNICALL Java_com_aether_os_MainActivity_start(JNIEnv* env, jobject o, jbyteArray k, jobject fb, jobject kb, jint w, jint h) {
+          extern "C" JNIEXPORT void JNICALL Java_com_aetheria_os_MainActivity_start(JNIEnv* env, jobject o, jbyteArray k, jobject fb, jobject kb, jint w, jint h) {
               jsize len = env->GetArrayLength(k);
               void* m = mmap(0, len, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
-              jbyte* b = env->GetByteArrayElements(k, 0);
-              memcpy(m, b, len);
+              env->GetByteArrayRegion(k, 0, len, (jbyte*)m);
               ((void(*)(void*, void*, int, int))m)(env->GetDirectBufferAddress(fb), env->GetDirectBufferAddress(kb), (int)w, (int)h);
           }
           EOF
@@ -115,10 +127,10 @@ jobs:
           echo "project(loader)" > app/src/main/cpp/CMakeLists.txt
           echo "add_library(loader SHARED loader.cpp)" >> app/src/main/cpp/CMakeLists.txt
           cat > app/src/main/AndroidManifest.xml << 'EOF'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.aether.os"><application android:label="AetheriaOS" android:theme="@android:style/Theme.NoTitleBar.Fullscreen"><activity android:name=".MainActivity" android:exported="true" android:screenOrientation="landscape"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.aetheria.os"><application android:label="AetheriaTiny" android:theme="@android:style/Theme.NoTitleBar.Fullscreen"><activity android:name=".MainActivity" android:exported="true" android:screenOrientation="landscape"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>
           EOF
           echo "plugins { id 'com.android.application' }" > app/build.gradle
-          echo "android { namespace 'com.aether.os'; compileSdk 34; defaultConfig { minSdk 24 }; externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt' } } }" >> app/build.gradle
+          echo "android { namespace 'com.aetheria.os'; compileSdk 34; defaultConfig { minSdk 24 }; externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt' } } }" >> app/build.gradle
           echo "buildscript { repositories { google(); mavenCentral() }; dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } }" > build.gradle
           echo "include ':app'" > settings.gradle
 
@@ -131,5 +143,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: AetheriaOS-Tiny
+          name: AetheriaOS-Final
           path: app/build/outputs/apk/debug/app-debug.apk
