@@ -1,4 +1,4 @@
-name: AetheriaOS_V3_Android14
+name: AetheriaOS_V4_FinalFix
 on: [push, pull_request]
 
 jobs:
@@ -30,47 +30,54 @@ jobs:
                   if(k == '2') { mode = 2; }
                   if(k == '0') { mode = 0; for(int i=0; i<w*h; i++) fb[i]=0xFF1A1B26; }
                   if(mode == 1) { // Snake
-                      draw_rect(fb, w, sx[slen-1], sy[slen-1], 12, 12, 0); // Clear tail
+                      draw_rect(fb, w, sx[slen-1], sy[slen-1], 12, 12, 0);
                       if(k=='w') sdir=0; if(k=='d') sdir=1; if(k=='s') sdir=2; if(k=='a') sdir=3;
                       for(int i=slen; i>0; i--) { sx[i]=sx[i-1]; sy[i]=sy[i-1]; }
                       if(sdir==0) sy[0]-=10; if(sdir==1) sx[0]+=10; if(sdir==2) sy[0]+=10; if(sdir==3) sx[0]-=10;
                       draw_rect(fb, w, sx[0], sy[0], 12, 12, 0xFF4AF626);
-                  } else if(mode == 2) { // HTML
+                  } else if(mode == 2) { // HTML Render
                       draw_rect(fb, w, 0, 0, 1280, 720, 0xFFFFFFFF);
-                      draw_rect(fb, w, 100, 100, 400, 60, 0xFF007BFF); // Button
-                      draw_rect(fb, w, 100, 200, 600, 10, 0xFF333333); // Text
-                  } else draw_rect(fb, w, 20, 20, 5, 20, 0xFFFFFFFF); // Shell cursor
+                      draw_rect(fb, w, 50, 50, 200, 40, 0xFF007BFF); // <button>
+                      draw_rect(fb, w, 50, 100, 400, 8, 0xFF333333); // <p>
+                  } else draw_rect(fb, w, 20, 20, 10, 30, 0xFFFFFFFF);
                   if(k != 0) *kb = 0;
-                  for(volatile int i=0; i<300000; i++); 
+                  for(volatile int i=0; i<250000; i++); 
               }
           }
           EOF
           clang -target aarch64-none-elf -O3 -ffreestanding -nostdlib -c kernel/kernel.c -o kernel.o
           ld.lld kernel.o -o kernel.bin --section-start .text=0x0 --oformat binary
 
-      - name: Create Android App
+      - name: Create Android Project
         run: |
           mkdir -p app/src/main/{java/com/aether/os,cpp,res/layout,res/raw}
           cp kernel.bin app/src/main/res/raw/kernel_bin
           
           cat > app/src/main/res/layout/activity_main.xml << 'EOF'
-          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" 
-              android:layout_width="match_parent" android:layout_height="match_parent" 
-              android:orientation="vertical" android:background="#111">
-              <EditText android:id="@+id/cmd" android:layout_width="match_parent" android:layout_height="60dp" 
-                  android:hint="Type 1 (Snake), 2 (HTML), 0 (OS)" android:background="#EEE" android:textColor="#000"
-                  android:padding="10dp" android:inputType="text" android:imeOptions="actionDone" android:focusable="true"/>
-              <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
-                  <SurfaceView android:id="@+id/s" android:layout_width="match_parent" android:layout_height="match_parent" />
-                  <RelativeLayout android:layout_width="160dp" android:layout_height="160dp" 
-                      android:layout_gravity="bottom|left" android:layout_margin="10dp">
-                      <Button android:id="@+id/w" android:layout_width="50dp" android:layout_height="50dp" android:text="W" android:layout_centerHorizontal="true" android:alpha="0.7"/>
-                      <Button android:id="@+id/a" android:layout_width="50dp" android:layout_height="50dp" android:text="A" android:layout_centerVertical="true" android:alpha="0.7"/>
-                      <Button android:id="@+id/s_btn" android:layout_width="50dp" android:layout_height="50dp" android:text="S" android:layout_alignParentBottom="true" android:layout_centerHorizontal="true" android:alpha="0.7"/>
-                      <Button android:id="@+id/d" android:layout_width="50dp" android:layout_height="50dp" android:text="D" android:layout_alignParentRight="true" android:layout_centerVertical="true" android:alpha="0.7"/>
-                  </RelativeLayout>
-              </FrameLayout>
-          </LinearLayout>
+          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android" 
+              android:layout_width="match_parent" android:layout_height="match_parent" android:background="#000">
+              
+              <SurfaceView android:id="@+id/s" android:layout_width="match_parent" android:layout_height="match_parent" />
+
+              <EditText android:id="@+id/cmd" 
+                  android:layout_width="match_parent" android:layout_height="60dp" 
+                  android:layout_alignParentTop="true"
+                  android:background="#FFFF00" android:textColor="#000"
+                  android:hint="CMD: 1-Snake, 2-HTML, 0-OS" android:padding="10dp"
+                  android:inputType="text" android:imeOptions="actionDone"
+                  android:importantForAutofill="no" />
+
+              <GridLayout android:layout_width="150dp" android:layout_height="150dp" 
+                  android:layout_alignParentBottom="true" android:layout_alignParentLeft="true"
+                  android:layout_margin="10dp" android:columnCount="3" android:rowCount="3">
+                  <View android:layout_width="50dp" android:layout_height="50dp" />
+                  <Button android:id="@+id/w" android:text="W" android:layout_width="50dp" android:layout_height="50dp" />
+                  <View android:layout_width="50dp" android:layout_height="50dp" />
+                  <Button android:id="@+id/a" android:text="A" android:layout_width="50dp" android:layout_height="50dp" />
+                  <Button android:id="@+id/s_btn" android:text="S" android:layout_width="50dp" android:layout_height="50dp" />
+                  <Button android:id="@+id/d" android:text="D" android:layout_width="50dp" android:layout_height="50dp" />
+              </GridLayout>
+          </RelativeLayout>
           EOF
 
           cat > app/src/main/java/com/aether/os/MainActivity.java << 'EOF'
@@ -103,7 +110,9 @@ jobs:
                   int[] ids={R.id.w, R.id.a, R.id.s_btn, R.id.d}; char[] keys={'w','a','s','d'};
                   for(int i=0; i<4; i++) {
                       final char c = keys[i];
-                      findViewById(ids[i]).setOnTouchListener((v, e) -> { if(e.getAction()==0) kb.put(0, (byte)c); return false; });
+                      findViewById(ids[i]).setOnTouchListener((v, e) -> { 
+                          if(e.getAction()==MotionEvent.ACTION_DOWN) kb.put(0, (byte)c); return true; 
+                      });
                   }
 
                   sv.getHolder().addCallback(new SurfaceHolder.Callback() {
@@ -133,7 +142,7 @@ jobs:
           #include <sys/mman.h>
           extern "C" JNIEXPORT void JNICALL Java_com_aether_os_MainActivity_start(JNIEnv* env, jobject t, jbyteArray k, jobject fb, jobject kb, jint w, jint h) {
               jsize len = env->GetArrayLength(k);
-              void* m = mmap(0, len, 7, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+              void* m = mmap(0, len, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
               env->GetByteArrayRegion(k, 0, len, (jbyte*)m);
               ((void(*)(void*, void*, int, int))m)(env->GetDirectBufferAddress(fb), env->GetDirectBufferAddress(kb), w, h);
           }
@@ -154,7 +163,13 @@ jobs:
           echo "project(loader)" > app/src/main/cpp/CMakeLists.txt
           echo "add_library(loader SHARED loader.cpp)" >> app/src/main/cpp/CMakeLists.txt
           cat > app/src/main/AndroidManifest.xml << 'EOF'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.aether.os"><application android:label="AetheriaOS" android:theme="@android:style/Theme.NoTitleBar.Fullscreen"><activity android:name=".MainActivity" android:exported="true" android:screenOrientation="landscape"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.aether.os">
+              <application android:label="AetheriaOS" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="landscape" android:windowSoftInputMode="adjustResize">
+                      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+                  </activity>
+              </application>
+          </manifest>
           EOF
 
       - name: Build APK
@@ -166,5 +181,5 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: AetheriaOS-V3
+          name: AetheriaOS-V4
           path: app/build/outputs/apk/debug/app-debug.apk
