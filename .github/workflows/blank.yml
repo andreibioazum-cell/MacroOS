@@ -9,54 +9,40 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Compilers
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang lld binutils-aarch64-linux-gnu
+        run: sudo apt-get update && sudo apt-get install -y clang lld
 
       - name: Build Tiny C Kernel
         run: |
           mkdir -p kernel
           cat > kernel/kernel.c << 'EOF'
-          typedef unsigned int u32;
-          // Рисуем квадрат
-          void draw_box(u32* fb, int w, int x, int y, u32 color) {
-              for(int i=0; i<30; i++)
-                  for(int j=0; j<30; j++)
-                      fb[(y+i)*w + (x+j)] = color;
-          }
-          void kmain(u32* fb, unsigned char* kb, int w, int h) {
-              u32 x=100, y=100;
-              for(int i=0; i<w*h; i++) fb[i] = 0xFF1A1B26; // Фон (Tokyo Night)
+          void kmain(unsigned int* fb, unsigned char* kb, int w, int h) {
+              unsigned int x=200, y=200, color=0xFF00FF00;
+              for(int i=0; i<w*h; i++) fb[i] = 0xFF000000;
               while(1) {
-                  draw_box(fb, w, x, y, 0xFFBB9AF7); // Рисуем
-                  unsigned char key = *kb;
-                  if(key != 0) {
-                      for(int i=0; i<30; i++) for(int j=0; j<30; j++) fb[(y+i)*w + (x+j)] = 0xFF1A1B26; // Стираем
-                      if(key == 'w') y -= 10; if(key == 's') y += 10;
-                      if(key == 'a') x -= 10; if(key == 'd') x += 10;
+                  for(int i=0; i<50; i++) for(int j=0; j<50; j++) fb[(y+i)*w + (x+j)] = color;
+                  unsigned char k = *kb;
+                  if(k != 0) {
+                      for(int i=0; i<50; i++) for(int j=0; j<50; j++) fb[(y+i)*w + (x+j)] = 0;
+                      if(k=='w') y-=10; if(k=='s') y+=10; if(k=='a') x-=10; if(k=='d') x+=10;
                       *kb = 0;
                   }
-                  for(volatile int i=0; i<100000; i++); // Микро-задержка
+                  for(volatile int i=0; i<100000; i++);
               }
           }
           EOF
-          # Компилируем в "сырой" бинарник (bare metal)
           clang -target aarch64-none-elf -O3 -ffreestanding -nostdlib -c kernel/kernel.c -o kernel.o
           ld.lld kernel.o -o kernel.bin --section-start .text=0x0 --oformat binary
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Create Android App
+      - name: Create Android Project
         run: |
           mkdir -p app/src/main/{java/com/aether/os,cpp,res/layout,res/raw}
           cp kernel.bin app/src/main/res/raw/kernel_bin
           
-          # UI с кнопками
+          # UI
           cat > app/src/main/res/layout/activity_main.xml << 'EOF'
-          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#000">
+          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent">
               <SurfaceView android:id="@+id/s" android:layout_width="match_parent" android:layout_height="match_parent" />
-              <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_alignParentBottom="true" android:padding="20dp">
+              <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_alignParentBottom="true">
                   <Button android:id="@+id/btnW" android:layout_width="60dp" android:layout_height="60dp" android:text="W" />
                   <Button android:id="@+id/btnA" android:layout_width="60dp" android:layout_height="60dp" android:text="A" />
                   <Button android:id="@+id/btnS" android:layout_width="60dp" android:layout_height="60dp" android:text="S" />
@@ -65,76 +51,64 @@ jobs:
           </RelativeLayout>
           EOF
 
-          # Загрузчик (JNI)
+          # JNI Loader
           cat > app/src/main/cpp/loader.cpp << 'EOF'
           #include <jni.h>
           #include <string.h>
           #include <sys/mman.h>
-          extern "C" JNIEXPORT void JNICALL Java_com_aether_os_MainActivity_start(JNIEnv* env, jobject thiz, jbyteArray k, jobject fb, jobject kb, jint w, jint h) {
+          extern "C" JNIEXPORT void JNICALL Java_com_aether_os_MainActivity_start(JNIEnv* env, jobject t, jbyteArray k, jobject fb, jobject kb, jint w, jint h) {
               jsize len = env->GetArrayLength(k);
-              void* m = mmap(0, len, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+              void* m = mmap(0, len, 7, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
               env->GetByteArrayRegion(k, 0, len, (jbyte*)m);
-              ((void(*)(void*, void*, int, int))m)(env->GetDirectBufferAddress(fb), env->GetDirectBufferAddress(kb), (int)w, (int)h);
+              ((void(*)(void*, void*, int, int))m)(env->GetDirectBufferAddress(fb), env->GetDirectBufferAddress(kb), w, h);
           }
           EOF
 
-          # MainActivity
+          # Java
           cat > app/src/main/java/com/aether/os/MainActivity.java << 'EOF'
           package com.aether.os;
-          import android.app.Activity;
-          import android.graphics.*;
-          import android.os.Bundle;
-          import android.view.*;
-          import android.widget.Button;
-          import java.nio.ByteBuffer;
-
-          public class MainActivity extends Activity {
+          public class MainActivity extends android.app.Activity {
               static { System.loadLibrary("loader"); }
-              native void start(byte[] k, ByteBuffer fb, ByteBuffer kb, int w, int h);
-              ByteBuffer fb = ByteBuffer.allocateDirect(1280*720*4), kb = ByteBuffer.allocateDirect(1);
-              Bitmap bm = Bitmap.createBitmap(1280, 720, Bitmap.Config.ARGB_8888);
-
-              @Override protected void onCreate(Bundle saved) {
-                  super.onCreate(saved);
-                  setContentView(R.layout.activity_main);
-                  SurfaceView sv = findViewById(R.id.s);
-                  int[] btns = {R.id.btnW, R.id.btnA, R.id.btnS, R.id.btnD};
-                  char[] keys = {'w', 'a', 's', 'd'};
-                  for(int i=0; i<4; i++) {
-                      final char c = keys[i];
-                      findViewById(btns[i]).setOnClickListener(v -> kb.put(0, (byte)c));
-                  }
-                  sv.getHolder().addCallback(new SurfaceHolder.Callback() {
-                      public void surfaceCreated(SurfaceHolder h) {
-                          new Thread(() -> { try {
-                              java.io.InputStream is = getResources().openRawResource(R.raw.kernel_bin);
-                              byte[] k = new byte[is.available()]; is.read(k);
-                              start(k, fb, kb, 1280, 720);
-                          } catch(Exception e){} }).start();
-                          new Thread(() -> { while(true) {
-                              Canvas c = h.lockCanvas();
-                              if(c != null) { fb.position(0); bm.copyPixelsFromBuffer(fb); 
-                              c.drawBitmap(bm, null, new Rect(0,0,sv.getWidth(),sv.getHeight()), null); h.unlockCanvasAndPost(c); }
-                              try { Thread.sleep(16); } catch(Exception e){}
-                          } }).start();
+              native void start(byte[] k, java.nio.ByteBuffer fb, java.nio.ByteBuffer kb, int w, int h);
+              java.nio.ByteBuffer fb = java.nio.ByteBuffer.allocateDirect(1280*720*4), kb = java.nio.ByteBuffer.allocateDirect(1);
+              android.graphics.Bitmap bm = android.graphics.Bitmap.createBitmap(1280, 720, android.graphics.Bitmap.Config.ARGB_8888);
+              protected void onCreate(android.os.Bundle s) {
+                  super.onCreate(s); setContentView(R.layout.activity_main);
+                  android.view.SurfaceView sv = findViewById(R.id.s);
+                  int[] b={R.id.btnW,R.id.btnA,R.id.btnS,R.id.btnD}; char[] keys={'w','a','s','d'};
+                  for(int i=0;i<4;i++){ final char c=keys[i]; findViewById(b[i]).setOnClickListener(v->kb.put(0,(byte)c)); }
+                  sv.getHolder().addCallback(new android.view.SurfaceHolder.Callback() {
+                      public void surfaceCreated(android.view.SurfaceHolder h) {
+                          new Thread(()->{try{ java.io.InputStream is=getResources().openRawResource(R.raw.kernel_bin); byte[] k=new byte[is.available()]; is.read(k); start(k,fb,kb,1280,720); }catch(Exception e){}}).start();
+                          new Thread(()->{while(true){ android.graphics.Canvas c=h.lockCanvas(); if(c!=null){ fb.position(0); bm.copyPixelsFromBuffer(fb); c.drawBitmap(bm,null,new android.graphics.Rect(0,0,sv.getWidth(),sv.getHeight()),null); h.unlockCanvasAndPost(c); } try{Thread.sleep(16);}catch(Exception e){}}}).start();
                       }
-                      public void surfaceChanged(SurfaceHolder h, int f, int w, int h2) {}
-                      public void surfaceDestroyed(SurfaceHolder h) {}
+                      public void surfaceChanged(android.view.SurfaceHolder h,int f,int w,int h2){}
+                      public void surfaceDestroyed(android.view.SurfaceHolder h){}
                   });
               }
           }
           EOF
 
-          # Сборочные файлы
+          # Gradle (FIXED REPOSITORIES)
+          cat > build.gradle << 'EOF'
+          buildscript { repositories { google(); mavenCentral() }; dependencies { classpath "com.android.tools.build:gradle:8.2.2" } }
+          allprojects { repositories { google(); mavenCentral() } }
+          EOF
+          echo "include ':app'" > settings.gradle
+          cat > app/build.gradle << 'EOF'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.aether.os'
+              compileSdk 34
+              defaultConfig { minSdk 24 }
+              externalNativeBuild { cmake { path "src/main/cpp/CMakeLists.txt" } }
+          }
+          EOF
           echo "project(loader)" > app/src/main/cpp/CMakeLists.txt
           echo "add_library(loader SHARED loader.cpp)" >> app/src/main/cpp/CMakeLists.txt
           cat > app/src/main/AndroidManifest.xml << 'EOF'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.aether.os"><application android:label="Aetheria" android:theme="@android:style/Theme.NoTitleBar.Fullscreen"><activity android:name=".MainActivity" android:exported="true" android:screenOrientation="landscape"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.aether.os"><application android:label="Aetheria"><activity android:name=".MainActivity" android:exported="true" android:screenOrientation="landscape"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>
           EOF
-          echo "plugins { id 'com.android.application' }" > app/build.gradle
-          echo "android { namespace 'com.aether.os'; compileSdk 34; defaultConfig { minSdk 24 }; externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt' } } }" >> app/build.gradle
-          echo "buildscript { repositories { google(); mavenCentral() }; dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } }" > build.gradle
-          echo "include ':app'" > settings.gradle
 
       - name: Build APK
         run: |
@@ -145,5 +119,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: AetheriaOS
+          name: Aetheria-OS
           path: app/build/outputs/apk/debug/app-debug.apk
