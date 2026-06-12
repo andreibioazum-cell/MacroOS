@@ -8,38 +8,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Android SDK & Install LLD
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y lld clang
-          # Устанавливаем NDK только для JNI части приложения
-          echo "y" | $ANDROID_HOME/tools/bin/sdkmanager --install "ndk;25.2.9519653"
+      - name: Setup Android SDK & NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;25.2.9519653'
 
-      - name: Build Tiny C Kernel
+      - name: Build Bare-Metal C Kernel
         run: |
           mkdir -p kernel
           cat > kernel/kernel.c << 'EOF'
           typedef unsigned int u32;
-          void draw_rect(u32* fb, int w, int x, int y, int rw, int rh, u32 col) {
-              for (int i = 0; i < rh; i++)
-                  for (int j = 0; j < rw; j++)
-                      fb[(y+i)*w + (x+j)] = col;
+          // Рисуем пиксель
+          void draw(u32* fb, int w, int x, int y, u32 col) {
+              if(x >= 0 && x < 1280 && y >= 0 && y < 720) fb[y * w + x] = col;
           }
-          void kmain(u32* fb, unsigned char* kb, u32 w, u32 h) {
-              u32 x=10, y=10, colors[]={0xFFFF0000, 0xFF00FF00, 0xFF0000FF, 0xFFFFFFFF};
-              for(int i=0; i<w*h; i++) fb[i] = 0xFF000000; // Clear
+          // Точка входа
+          void kmain(u32* fb, unsigned char* kb, int w, int h) {
+              u32 x=100, y=100, c=0xFF00FF00;
+              for(int i=0; i<w*h; i++) fb[i] = 0xFF111111; // Очистка
               while(1) {
-                  draw_rect(fb, w, x*10, y*10, 20, 20, colors[x%4]);
-                  if(*kb == 'w') y--; if(*kb == 's') y++;
-                  if(*kb == 'a') x--; if(*kb == 'd') x++;
-                  if(*kb != 0) { *kb = 0; draw_rect(fb, w, 0, 0, w, h, 0xFF000000); }
-                  for(int i=0; i<500000; i++) __asm__("nop"); // Delay
+                  for(int i=0; i<20; i++) for(int j=0; j<20; j++) draw(fb, w, x+i, y+j, c);
+                  if(*kb == 'w') y-=5; if(*kb == 's') y+=5;
+                  if(*kb == 'a') x-=5; if(*kb == 'd') x+=5;
+                  if(*kb != 0) { *kb = 0; for(int i=0; i<w*h; i++) fb[i] = 0xFF111111; }
+                  for(volatile int i=0; i<200000; i++); // Задержка
               }
           }
           EOF
-          # Компилируем ядро одной командой
-          clang --target=aarch64-linux-gnu -O3 -shared -nostdlib \
-                -fuse-ld=lld kernel/kernel.c -o kernel.bin -Wl,--entry=kmain
+          # Компилируем в чистый бинарник (без заголовков ELF)
+          clang --target=aarch64-linux-gnu -O3 -ffreestanding -nostdlib -c kernel/kernel.c -o kernel.o
+          ld.lld kernel.o -o kernel.bin --section-start .text=0x0 --oformat binary
 
       - name: Create Android Wrapper
         run: |
@@ -50,10 +48,10 @@ jobs:
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#000">
               <SurfaceView android:id="@+id/s" android:layout_width="match_parent" android:layout_height="match_parent" />
               <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_alignParentBottom="true">
-                  <Button android:id="@+id/btnW" android:layout_width="80dp" android:layout_height="80dp" android:text="W" />
-                  <Button android:id="@+id/btnS" android:layout_width="80dp" android:layout_height="80dp" android:text="S" />
-                  <Button android:id="@+id/btnA" android:layout_width="80dp" android:layout_height="80dp" android:text="A" />
-                  <Button android:id="@+id/btnD" android:layout_width="80dp" android:layout_height="80dp" android:text="D" />
+                  <Button android:id="@+id/btnW" android:layout_width="70dp" android:layout_height="70dp" android:text="W" />
+                  <Button android:id="@+id/btnS" android:layout_width="70dp" android:layout_height="70dp" android:text="S" />
+                  <Button android:id="@+id/btnA" android:layout_width="70dp" android:layout_height="70dp" android:text="A" />
+                  <Button android:id="@+id/btnD" android:layout_width="70dp" android:layout_height="70dp" android:text="D" />
               </LinearLayout>
           </RelativeLayout>
           EOF
@@ -73,21 +71,20 @@ jobs:
               ByteBuffer fb = ByteBuffer.allocateDirect(1280*720*4), kb = ByteBuffer.allocateDirect(1);
               Bitmap bm = Bitmap.createBitmap(1280, 720, Bitmap.Config.ARGB_8888);
 
-              @Override
-              protected void onCreate(Bundle b) {
+              @Override protected void onCreate(Bundle b) {
                   super.onCreate(b);
                   setContentView(R.layout.activity_main);
                   SurfaceView s = findViewById(R.id.s);
-                  View.OnTouchListener l = (v, e) -> { if(e.getAction()==0) kb.put(0, (byte)((Button)v).getText().toString().toLowerCase().charAt(0)); return false; };
+                  View.OnTouchListener l = (v, e) -> { if(e.getAction()==0) kb.put(0, (byte)((Button)v).getText().toLowerCase().charAt(0)); return false; };
                   findViewById(R.id.btnA).setOnTouchListener(l); findViewById(R.id.btnW).setOnTouchListener(l);
                   findViewById(R.id.btnS).setOnTouchListener(l); findViewById(R.id.btnD).setOnTouchListener(l);
 
                   s.getHolder().addCallback(new SurfaceHolder.Callback() {
                       public void surfaceCreated(SurfaceHolder h) {
-                          new Thread(() -> { try { 
-                              byte[] k = new byte[getResources().openRawResource(R.raw.kernel_bin).available()];
-                              getResources().openRawResource(R.raw.kernel_bin).read(k);
-                              start(k, fb, kb, 1280, 720); 
+                          new Thread(() -> { try {
+                              java.io.InputStream is = getResources().openRawResource(R.raw.kernel_bin);
+                              byte[] k = new byte[is.available()]; is.read(k);
+                              start(k, fb, kb, 1280, 720);
                           } catch(Exception e){} }).start();
                           new Thread(() -> { while(true) {
                               Canvas c = h.lockCanvas();
@@ -106,28 +103,20 @@ jobs:
           #include <jni.h>
           #include <string.h>
           #include <sys/mman.h>
-          extern "C" JNIEXPORT void JNICALL Java_com_aether_os_MainActivity_start(JNIEnv* env, jobject obj, jbyteArray k, jobject fb, jobject kb, jint w, jint h) {
+          extern "C" JNIEXPORT void JNICALL Java_com_aether_os_MainActivity_start(JNIEnv* env, jobject o, jbyteArray k, jobject fb, jobject kb, jint w, jint h) {
               jsize len = env->GetArrayLength(k);
-              void* mem = mmap(0, len, 7, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+              void* m = mmap(0, len, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
               jbyte* b = env->GetByteArrayElements(k, 0);
-              memcpy(mem, b, len);
-              ((void(*)(void*, void*, int, int))mem)(env->GetDirectBufferAddress(fb), env->GetDirectBufferAddress(kb), (int)w, (int)h);
+              memcpy(m, b, len);
+              ((void(*)(void*, void*, int, int))m)(env->GetDirectBufferAddress(fb), env->GetDirectBufferAddress(kb), (int)w, (int)h);
           }
           EOF
 
           echo "project(loader)" > app/src/main/cpp/CMakeLists.txt
           echo "add_library(loader SHARED loader.cpp)" >> app/src/main/cpp/CMakeLists.txt
-
           cat > app/src/main/AndroidManifest.xml << 'EOF'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.aether.os">
-              <application android:label="AetheriaOS" android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
-                  <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="landscape">
-                      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
-                  </activity>
-              </application>
-          </manifest>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.aether.os"><application android:label="AetheriaOS" android:theme="@android:style/Theme.NoTitleBar.Fullscreen"><activity android:name=".MainActivity" android:exported="true" android:screenOrientation="landscape"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>
           EOF
-
           echo "plugins { id 'com.android.application' }" > app/build.gradle
           echo "android { namespace 'com.aether.os'; compileSdk 34; defaultConfig { minSdk 24 }; externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt' } } }" >> app/build.gradle
           echo "buildscript { repositories { google(); mavenCentral() }; dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } }" > build.gradle
