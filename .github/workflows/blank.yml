@@ -14,7 +14,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. Настройка окружения
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -28,30 +27,61 @@ jobs:
           override: true
           components: rust-src
 
-      # 2. Сборка Ядра (Kernel)
+      # 1. ГАРАНТИРУЕМ НАЛИЧИЕ ВСЕХ ФАЙЛОВ ПЕРЕД СБОРКОЙ
+      - name: Verify and Repair Project Structure
+        run: |
+          mkdir -p android/app/src/main/res/raw
+          mkdir -p android/app/src/main/cpp
+          
+          # Проверяем Manifest (если пропал - создаем)
+          if [ ! -f "android/app/src/main/AndroidManifest.xml" ]; then
+            echo "Repairing Manifest..."
+            mkdir -p android/app/src/main
+            cat > android/app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application android:label="AetheriaOS" android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+                  <activity android:name="com.aetheria.loader.MainActivity" android:exported="true" android:screenOrientation="landscape">
+                      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          fi
+
+          # Проверяем CMakeLists.txt для C++ части
+          if [ ! -f "android/app/src/main/cpp/CMakeLists.txt" ]; then
+            cat > android/app/src/main/cpp/CMakeLists.txt << 'EOF'
+          cmake_minimum_required(VERSION 3.22)
+          project(aetheria_loader)
+          add_library(aetheria_loader SHARED loader.cpp)
+          target_link_libraries(aetheria_loader log)
+          EOF
+          fi
+
+      # 2. СБОРКА ЯДРА (Rust)
       - name: Build Rust Kernel
         run: |
           cd kernel
           cargo build --release --target aarch64-unknown-none
           
-          # Находим инструменты NDK для линковки
-          NDK_PATH=$(find $ANDROID_HOME/ndk -maxdepth 1 -type d -name "2*" | head -n 1)
-          LLD=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld
-          OBJCOPY=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy
+          # Путь к инструментам NDK
+          NDK_BIN=$(find $ANDROID_HOME/ndk -name "ld.lld" | head -n 1 | xargs dirname)
+          OBJCOPY=$(find $ANDROID_HOME/ndk -name "llvm-objcopy" | head -n 1)
           
-          # Линкуем ELF и переводим в сырой бинарник
-          $LLD -T linker.ld -o kernel.elf target/aarch64-unknown-none/release/libaetheria_kernel.a
+          # Линковка
+          $NDK_BIN/ld.lld -T linker.ld -o kernel.elf target/aarch64-unknown-none/release/libaetheria_kernel.a
           $OBJCOPY -O binary kernel.elf kernel.bin
           
-          # Копируем готовое ядро в ресурсы Андроида
-          mkdir -p ../android/app/src/main/res/raw
+          # Копируем в ресурсы Android
           cp kernel.bin ../android/app/src/main/res/raw/kernel_bin
 
-      # 3. Подготовка Android проекта (Gradle файлы)
-      # Это на случай, если их нет в репозитории
-      - name: Prepare Gradle root files
+      # 3. СБОРКА ANDROID (APK)
+      - name: Build Android APK
         run: |
           cd android
+          # Создаем базовые файлы Gradle если их нет
+          if [ ! -f "settings.gradle" ]; then echo "include ':app'" > settings.gradle; fi
           if [ ! -f "build.gradle" ]; then
             cat > build.gradle << 'EOF'
           buildscript {
@@ -61,32 +91,20 @@ jobs:
           allprojects { repositories { google(); mavenCentral() } }
           EOF
           fi
-          
-          if [ ! -f "settings.gradle" ]; then
-            echo "include ':app'" > settings.gradle
-          fi
-          
-          if [ ! -f "gradle.properties" ]; then
-            echo "android.useAndroidX=true" > gradle.properties
-          fi
 
-      # 4. Сборка APK
-      - name: Build Android APK
-        run: |
-          cd android
-          # Устанавливаем Gradle обертку если её нет
+          # Сборка
           wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
           unzip -q gradle-8.5-bin.zip
           export PATH="$PWD/gradle-8.5/bin:$PATH"
           gradle wrapper --gradle-version 8.5
-          
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      # 5. Сохранение результата
-      - name: Upload APK
+      # 4. ВЫГРУЗКА РЕЗУЛЬТАТА
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AetheriaOS-Debug-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 7
+          name: AetheriaOS-Built
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            kernel/kernel.bin
