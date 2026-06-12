@@ -27,14 +27,29 @@ jobs:
           override: true
           components: rust-src
 
-      # 1. СОЗДАЕМ ПОЛНУЮ СТРУКТУРУ И ВЕСЬ КОД ОС
-      - name: Inject Full OS Source
+      # 1. СОЗДАЕМ СТРУКТУРУ И КОД (ИСПРАВЛЕННЫЙ TOML)
+      - name: Inject OS Source
         run: |
           mkdir -p kernel/src
           mkdir -p android/app/src/main/java/com/aetheria/loader
           mkdir -p android/app/src/main/cpp
           mkdir -p android/app/src/main/res/layout
           mkdir -p android/app/src/main/res/raw
+
+          # --- КОРРЕКТНЫЙ CARGO.TOML ---
+          cat > kernel/Cargo.toml << 'EOF'
+          [package]
+          name = "aetheria_kernel"
+          version = "0.1.0"
+          edition = "2021"
+
+          [lib]
+          crate-type = ["staticlib"]
+
+          [profile.release]
+          opt-level = 3
+          panic = "abort"
+          EOF
 
           # --- ШРИФТ ---
           cat > kernel/src/font.rs << 'EOF'
@@ -45,7 +60,7 @@ jobs:
           const FONT_DATA: [[u8; 8]; 95] = [[0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00],[0x18,0x3C,0x3C,0x18,0x18,0x00,0x18,0x00],[0x66,0x66,0x24,0x00,0x00,0x00,0x00,0x00],[0x6C,0x6C,0xFE,0x6C,0xFE,0x6C,0x6C,0x00],[0x18,0x3E,0x60,0x3C,0x06,0x7C,0x18,0x00],[0x00,0xC6,0xCC,0x18,0x30,0x66,0xC6,0x00],[0x38,0x6C,0x38,0x76,0xDC,0xCC,0x76,0x00],[0x18,0x18,0x30,0x00,0x00,0x00,0x00,0x00],[0x0C,0x18,0x30,0x30,0x30,0x18,0x0C,0x00],[0x30,0x18,0x0C,0x0C,0x0C,0x18,0x30,0x00],[0x00,0x66,0x3C,0xFF,0x3C,0x66,0x00,0x00],[0x00,0x18,0x18,0x7E,0x18,0x18,0x00,0x00],[0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x30],[0x00,0x00,0x00,0x7E,0x00,0x00,0x00,0x00],[0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x00],[0x00,0x06,0x0C,0x18,0x30,0x60,0x00,0x00],[0x3C,0x66,0x6E,0x76,0x66,0x66,0x3C,0x00],[0x18,0x38,0x18,0x18,0x18,0x18,0x7E,0x00],[0x3C,0x66,0x06,0x0C,0x30,0x60,0xFF,0x00],[0x3C,0x66,0x06,0x1C,0x06,0x66,0x3C,0x00],[0x0C,0x1C,0x3C,0x6C,0xFF,0x0C,0x0C,0x00],[0xFF,0x60,0x7C,0x06,0x06,0x66,0x3C,0x00],[0x3C,0x66,0x60,0x7C,0x66,0x66,0x3C,0x00],[0xFF,0x06,0x0C,0x18,0x30,0x30,0x30,0x00],[0x3C,0x66,0x66,0x3C,0x66,0x66,0x3C,0x00],[0x3C,0x66,0x66,0x3E,0x06,0x66,0x3C,0x00],[0x00,0x18,0x18,0x00,0x18,0x18,0x00,0x00],[0x00,0x18,0x18,0x00,0x18,0x18,0x30,0x00],[0x00,0x0C,0x18,0x30,0x18,0x0C,0x00,0x00],[0x00,0x00,0x7E,0x00,0x7E,0x00,0x00,0x00],[0x00,0x30,0x18,0x0C,0x18,0x30,0x00,0x00],[0x3C,0x66,0x06,0x0C,0x18,0x00,0x18,0x00],[0x3C,0x66,0x6E,0x6E,0x60,0x66,0x3C,0x00],[0x3C,0x66,0x66,0x7E,0x66,0x66,0x66,0x00],[0x7C,0x66,0x66,0x7C,0x66,0x66,0x7C,0x00],[0x3C,0x66,0x60,0x60,0x60,0x66,0x3C,0x00],[0x78,0x6C,0x66,0x66,0x66,0x6C,0x78,0x00],[0x7E,0x60,0x60,0x78,0x60,0x60,0x7E,0x00],[0x7E,0x60,0x60,0x78,0x60,0x60,0x60,0x00],[0x3C,0x66,0x60,0x6E,0x66,0x66,0x3E,0x00],[0x66,0x66,0x66,0x7E,0x66,0x66,0x66,0x00],[0x3E,0x18,0x18,0x18,0x18,0x18,0x3E,0x00],[0x0F,0x06,0x06,0x06,0x66,0x66,0x3C,0x00],[0x66,0x6C,0x78,0x70,0x78,0x6C,0x66,0x00],[0x60,0x60,0x60,0x60,0x60,0x60,0x7E,0x00],[0x63,0x77,0x7F,0x6B,0x63,0x63,0x63,0x00],[0x66,0x76,0x7E,0x7E,0x6E,0x66,0x66,0x00],[0x3C,0x66,0x66,0x66,0x66,0x66,0x3C,0x00],[0x7C,0x66,0x66,0x7C,0x60,0x60,0x60,0x00],[0x3C,0x66,0x66,0x66,0x66,0x3C,0x0E,0x00],[0x7C,0x66,0x66,0x7C,0x78,0x6C,0x66,0x00],[0x3C,0x66,0x60,0x3C,0x06,0x66,0x3C,0x00],[0x7E,0x18,0x18,0x18,0x18,0x18,0x18,0x00],[0x66,0x66,0x66,0x66,0x66,0x66,0x3C,0x00],[0x66,0x66,0x66,0x66,0x66,0x3C,0x18,0x00],[0x63,0x63,0x6B,0x7F,0x77,0x63,0x63,0x00],[0x66,0x66,0x3C,0x18,0x3C,0x66,0x66,0x00],[0x66,0x66,0x66,0x3C,0x18,0x18,0x18,0x00],[0x7E,0x06,0x0C,0x18,0x30,0x60,0x7E,0x00],[0x3C,0x30,0x30,0x30,0x30,0x30,0x3C,0x00],[0x00,0x60,0x30,0x18,0x0C,0x06,0x00,0x00],[0x3C,0x0C,0x0C,0x0C,0x0C,0x0C,0x3C,0x00],[0x18,0x3C,0x66,0x00,0x00,0x00,0x00,0x00],[0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFF],[0x30,0x18,0x0C,0x00,0x00,0x00,0x00,0x00],[0x00,0x00,0x3C,0x06,0x3E,0x66,0x3E,0x00],[0x60,0x60,0x7C,0x66,0x66,0x66,0x7C,0x00],[0x00,0x00,0x3C,0x60,0x60,0x60,0x3C,0x00],[0x06,0x06,0x3E,0x66,0x66,0x66,0x3E,0x00],[0x00,0x00,0x3C,0x66,0x7E,0x60,0x3C,0x00],[0x1C,0x30,0x7C,0x30,0x30,0x30,0x30,0x00],[0x00,0x00,0x3E,0x66,0x66,0x3E,0x06,0x3C],[0x60,0x60,0x7C,0x66,0x66,0x66,0x66,0x00],[0x18,0x00,0x38,0x18,0x18,0x18,0x3C,0x00],[0x0C,0x00,0x1C,0x0C,0x0C,0x0C,0x0C,0x38],[0x60,0x60,0x66,0x6C,0x78,0x6C,0x66,0x00],[0x38,0x18,0x18,0x18,0x18,0x18,0x3C,0x00],[0x00,0x00,0x6C,0xFE,0xD6,0xD6,0xC6,0x00],[0x00,0x00,0x7C,0x66,0x66,0x66,0x66,0x00],[0x00,0x00,0x3C,0x66,0x66,0x66,0x3C,0x00],[0x00,0x00,0x7C,0x66,0x66,0x7C,0x60,0x60],[0x00,0x00,0x3E,0x66,0x66,0x3E,0x06,0x06],[0x00,0x00,0x7C,0x66,0x60,0x60,0x60,0x00],[0x00,0x00,0x3C,0x60,0x3C,0x06,0x3C,0x00],[0x30,0x30,0x7C,0x30,0x30,0x30,0x1C,0x00],[0x00,0x00,0x66,0x66,0x66,0x66,0x3E,0x00],[0x00,0x00,0x66,0x66,0x66,0x3C,0x18,0x00],[0x00,0x00,0xC6,0xD6,0xD6,0xFE,0x6C,0x00],[0x00,0x00,0x66,0x3C,0x18,0x3C,0x66,0x00],[0x00,0x00,0x66,0x66,0x66,0x3E,0x06,0x3C],[0x00,0x00,0x7E,0x0C,0x18,0x30,0x7E,0x00],[0x0E,0x18,0x18,0x70,0x18,0x18,0x0E,0x00],[0x18,0x18,0x18,0x00,0x18,0x18,0x18,0x00],[0x70,0x18,0x18,0x0E,0x18,0x18,0x70,0x00],[0x3A,0x6E,0x00,0x00,0x00,0x00,0x00,0x00]];
           EOF
 
-          # --- VGA (Графика) ---
+          # --- VGA ---
           cat > kernel/src/vga.rs << 'EOF'
           use core::ptr::write_volatile;
           use crate::font;
@@ -70,15 +85,16 @@ jobs:
           }
           EOF
 
-          # --- VM (Виртуальная машина) ---
+          # --- VM (FIXED: NO ALLOC/VEC) ---
           cat > kernel/src/vm.rs << 'EOF'
           use core::ptr::{read_volatile, write_volatile};
           use crate::vga;
-          pub struct AetherVM { regs: [i32; 26], mem: [i32; 1024] }
+          pub struct AetherVM { regs: [i32; 26] }
           impl AetherVM {
-              pub fn new() -> Self { Self { regs: [0; 26], mem: [0; 1024] } }
+              pub fn new() -> Self { Self { regs: [0; 26] } }
               fn get_val(&self, s: &str) -> i32 {
                   let b = s.as_bytes();
+                  if b.is_empty() { return 0; }
                   if b.len() == 1 && b[0] >= b'a' && b[0] <= b'z' { return self.regs[(b[0] - b'a') as usize]; }
                   let mut v = 0; let mut sign = 1;
                   for (i, &ch) in b.iter().enumerate() {
@@ -94,6 +110,7 @@ jobs:
                   let colors = [0xFF0D0D14, 0xFFFFFFFF, 0xFF4AF626, 0xFFF38BA8, 0xFF89B4FA, 0xFFF9E2AF, 0xFF94E2D5];
                   while pc < lc {
                       let key = read_volatile(kb); if key != 0 { write_volatile(kb, 0); }
+                      let mut jumped = false;
                       let mut words = [""; 8]; let mut wc = 0;
                       for ws in lines[pc].split(' ') { if !ws.is_empty() && wc < 8 { words[wc] = ws; wc += 1; } }
                       if wc > 0 {
@@ -102,50 +119,49 @@ jobs:
                               "clear" => { if wc > 1 { vga::draw_rect(fb, w, 0, 0, w, h, colors[self.get_val(words[1]) as usize % 7]); } }
                               "text" => { if wc > 4 { vga::draw_text(fb, w, self.get_val(words[1]) as u32, self.get_val(words[2]) as u32, words[4], colors[self.get_val(words[3]) as usize % 7], 2); } }
                               "exit" => break,
-                              "jmp" => { if wc > 1 { pc = self.get_val(words[1]) as usize; continue; } }
+                              "jmp" => { if wc > 1 { pc = self.get_val(words[1]) as usize; jumped = true; } }
                               _ => {}
                           }
                       }
-                      pc += 1;
+                      if !jumped { pc += 1; }
                   }
               }
           }
           EOF
 
-          # --- LIB.RS (Главный файл) ---
+          # --- LIB.RS ---
           cat > kernel/src/lib.rs << 'EOF'
           #![no_std]
           mod font; mod vga; mod vm;
           use core::panic::PanicInfo;
           use core::ptr::{read_volatile, write_volatile};
+          use core::str;
           #[panic_handler] fn panic(_i: &PanicInfo) -> ! { loop {} }
 
           struct VFile { name: &'static str, code: &'static str }
-          const FS: [VFile; 1] = [ VFile { name: "info.ae", code: "clear 0\ntext 20 20 2 AETHERIA_OS\ntext 20 60 1 Welcome_to_bare_metal!\ntext 20 100 3 Press_Q_to_Exit\nkey k\nif k == 113 exit\njmp 0" } ];
+          const FS: [VFile; 1] = [ VFile { name: "sys.ae", code: "clear 0\ntext 20 20 2 AETHERIA_OS\ntext 20 60 1 Shell_Active\ntext 20 100 3 Press_Q_to_Exit\nkey k\nif k == 113 exit\njmp 0" } ];
 
           #[no_mangle]
           pub unsafe extern "C" fn aetheria_main(fb: *mut u32, kb: *mut u8, w: u32, h: u32) -> ! {
-              vga::draw_rect(fb, w, 0, 0, w, h, 0xFF0D0D14);
-              vga::draw_text(fb, w, 20, 20, "AetheriaOS v0.5 - Ready", 0xFF4AF626, 2);
-              vga::draw_text(fb, w, 20, 60, "> Click screen to type", 0xFFFFFFFF, 2);
-              
+              let bg = 0xFF0D0D14u32; let gr = 0xFF4AF626u32;
+              vga::draw_rect(fb, w, 0, 0, w, h, bg);
+              vga::draw_text(fb, w, 20, 20, "Aetheria Shell", gr, 2);
               let mut buf = [0u8; 32]; let mut len = 0;
               loop {
                   let k = read_volatile(kb);
                   if k != 0 {
                       write_volatile(kb, 0);
-                      if k == 10 { // Enter
+                      if k == 10 {
                           if len > 0 {
-                             let mut vm = vm::AetherVM::new();
-                             vm.run(fb, kb, w, h, FS[0].code);
-                             vga::draw_rect(fb, w, 0, 0, w, h, 0xFF0D0D14);
-                             vga::draw_text(fb, w, 20, 20, "AetheriaOS v0.5 - Ready", 0xFF4AF626, 2);
+                              let mut machine = vm::AetherVM::new();
+                              machine.run(fb, kb, w, h, FS[0].code);
+                              vga::draw_rect(fb, w, 0, 0, w, h, bg);
+                              vga::draw_text(fb, w, 20, 20, "Aetheria Shell", gr, 2);
                           }
                           len = 0;
-                      } else if len < 32 {
-                          buf[len] = k;
-                          vga::draw_char(fb, w, 20 + (len as u32 * 16), 100, k as char, 0xFFFFFFFF, 2);
-                          len += 1;
+                      } else if len < 32 && k >= 32 {
+                          buf[len] = k; len += 1;
+                          vga::draw_char(fb, w, 20 + (len as u32 * 16), 60, k as char, 0xFFFFFFFF, 2);
                       }
                   }
                   core::hint::spin_loop();
@@ -153,23 +169,49 @@ jobs:
           }
           EOF
 
-          # --- ANDROID LAYOUT (D-PAD) ---
+          # --- ANDROID CONFIGS ---
+          cat > android/settings.gradle << 'EOF'
+          include ':app'
+          EOF
+          cat > android/build.gradle << 'EOF'
+          buildscript { repositories { google(); mavenCentral() }; dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } }
+          allprojects { repositories { google(); mavenCentral() } }
+          EOF
+          cat > android/gradle.properties << 'EOF'
+          android.useAndroidX=true
+          EOF
+          cat > android/app/build.gradle << 'EOF'
+          plugins { id 'com.android.application' }
+          android { namespace 'com.aetheria.loader'; compileSdk 34; defaultConfig { applicationId 'com.aetheria.loader'; minSdk 24; targetSdk 34; externalNativeBuild { cmake { cppFlags "-O3" } } } externalNativeBuild { cmake { path "src/main/cpp/CMakeLists.txt" } } }
+          EOF
+          cat > android/app/src/main/cpp/CMakeLists.txt << 'EOF'
+          cmake_minimum_required(VERSION 3.22)
+          project(aetheria_loader)
+          add_library(aetheria_loader SHARED loader.cpp)
+          target_link_libraries(aetheria_loader log)
+          EOF
+          cat > android/app/src/main/cpp/loader.cpp << 'EOF'
+          #include <jni.h>
+          #include <sys/mman.h>
+          #include <cstring>
+          extern "C" JNIEXPORT void JNICALL Java_com_aetheria_loader_MainActivity_startKernel(JNIEnv* env, jobject, jbyteArray kd, jobject fb, jobject kb, jint w, jint h) {
+              jsize len = env->GetArrayLength(kd); jbyte* b = env->GetByteArrayElements(kd, 0);
+              void* exec = mmap(0, len, 7, 0x22, -1, 0); memcpy(exec, b, len);
+              ((void (*)(void*, void*, int, int))exec)(env->GetDirectBufferAddress(fb), env->GetDirectBufferAddress(kb), w, h);
+          }
+          EOF
+          cat > android/app/src/main/AndroidManifest.xml << 'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"><application android:label="AetheriaOS"><activity android:name="com.aetheria.loader.MainActivity" android:exported="true" android:screenOrientation="landscape"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>
+          EOF
           cat > android/app/src/main/res/layout/activity_main.xml << 'EOF'
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#000">
               <SurfaceView android:id="@+id/surface" android:layout_width="match_parent" android:layout_height="match_parent" />
-              <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:layout_alignParentBottom="true" android:layout_centerHorizontal="true" android:padding="20dp">
-                  <Button android:id="@+id/btnW" android:layout_width="60dp" android:layout_height="60dp" android:text="UP" />
-                  <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal">
-                      <Button android:id="@+id/btnA" android:layout_width="60dp" android:layout_height="60dp" android:text="L" />
-                      <Button android:id="@+id/btnS" android:layout_width="60dp" android:layout_height="60dp" android:text="DN" />
-                      <Button android:id="@+id/btnD" android:layout_width="60dp" android:layout_height="60dp" android:text="R" />
-                  </LinearLayout>
+              <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_alignParentBottom="true" android:layout_centerHorizontal="true">
+                  <Button android:id="@+id/btnW" android:layout_width="60dp" android:layout_height="60dp" android:text="W" />
+                  <Button android:id="@+id/btnS" android:layout_width="60dp" android:layout_height="60dp" android:text="S" />
               </LinearLayout>
-              <Button android:id="@+id/btnQ" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="QUIT" android:layout_alignParentTop="true" android:layout_alignParentRight="true" android:layout_margin="10dp" android:background="#F00"/>
           </RelativeLayout>
           EOF
-
-          # --- JAVA MAIN ACTIVITY ---
           cat > android/app/src/main/java/com/aetheria/loader/MainActivity.java << 'EOF'
           package com.aetheria.loader;
           import android.app.Activity;
@@ -200,50 +242,12 @@ jobs:
               }
           }
           EOF
-
-          # --- CONFIGS ---
-          cat > android/settings.gradle << 'EOF'
-          include ':app'
-          EOF
-          cat > android/build.gradle << 'EOF'
-          buildscript { repositories { google(); mavenCentral() }; dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } }
-          allprojects { repositories { google(); mavenCentral() } }
-          EOF
-          cat > android/app/build.gradle << 'EOF'
-          plugins { id 'com.android.application' }
-          android { namespace 'com.aetheria.loader'; compileSdk 34; defaultConfig { applicationId 'com.aetheria.loader'; minSdk 24; targetSdk 34; externalNativeBuild { cmake { cppFlags "-O3" } } } externalNativeBuild { cmake { path "src/main/cpp/CMakeLists.txt" } } }
-          EOF
-          cat > android/app/src/main/cpp/CMakeLists.txt << 'EOF'
-          cmake_minimum_required(VERSION 3.22)
-          project(aetheria_loader)
-          add_library(aetheria_loader SHARED loader.cpp)
-          target_link_libraries(aetheria_loader log)
-          EOF
-          cat > android/app/src/main/cpp/loader.cpp << 'EOF'
-          #include <jni.h>
-          #include <sys/mman.h>
-          #include <cstring>
-          extern "C" JNIEXPORT void JNICALL Java_com_aetheria_loader_MainActivity_startKernel(JNIEnv* env, jobject, jbyteArray kd, jobject fb, jobject kb, jint w, jint h) {
-              jsize len = env->GetArrayLength(kd); jbyte* b = env->GetByteArrayElements(kd, 0);
-              void* exec = mmap(0, len, 7, 0x22, -1, 0); memcpy(exec, b, len);
-              ((void (*)(void*, void*, int, int))exec)(env->GetDirectBufferAddress(fb), env->GetDirectBufferAddress(kb), w, h);
-          }
-          EOF
-          cat > android/app/src/main/AndroidManifest.xml << 'EOF'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android"><application android:label="AetheriaOS"><activity android:name="com.aetheria.loader.MainActivity" android:exported="true" android:screenOrientation="landscape"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>
-          EOF
-          cat > kernel/Cargo.toml << 'EOF'
-          [package]
-          name="aetheria_kernel"; version="0.1.0"; edition="2021"
-          [lib]
-          crate-type=["staticlib"]
-          EOF
           cat > kernel/linker.ld << 'EOF'
           ENTRY(aetheria_main); SECTIONS { . = 0x0; .text : { *(.text.entry) *(.text*) } /DISCARD/ : { *(.eh_frame) } }
           EOF
 
-      # 2. СБОРКА ЯДРА И APK
-      - name: Build Kernel
+      # 2. СБОРКА
+      - name: Build
         run: |
           cd kernel
           cargo build --release --target aarch64-unknown-none
@@ -253,10 +257,7 @@ jobs:
           $OBJCOPY -O binary kernel.elf kernel.bin
           mkdir -p ../android/app/src/main/res/raw
           cp kernel.bin ../android/app/src/main/res/raw/kernel_bin
-
-      - name: Build Android APK
-        run: |
-          cd android
+          cd ../android
           wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
           unzip -q gradle-8.5-bin.zip
           export PATH="$PWD/gradle-8.5/bin:$PATH"
@@ -264,7 +265,7 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Upload APK
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: AetheriaOS-Final
